@@ -35,7 +35,7 @@ const initialParameters: Parameter[] = [
     id: '1',
     name: 'total_sales',
     description: 'Calculates the total sales amount for the specified month.',
-    sql: "SELECT SUM(amount) FROM sales WHERE strftime('%Y-%m', sale_date) = '[REPORT_DATE]';",
+    sql: "SELECT COUNT(*) FROM customers;",
   },
   {
     id: '2',

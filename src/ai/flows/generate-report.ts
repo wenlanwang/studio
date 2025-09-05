@@ -72,7 +72,6 @@ const generateReportFlow = ai.defineFlow(
         patches: patches,
     });
     
-    // Convert Uint8Array to Buffer before encoding to base64
     const newDocBuffer = Buffer.from(newDocUint8Array);
 
     return {
