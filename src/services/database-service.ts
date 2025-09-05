@@ -13,7 +13,7 @@ class DatabaseService {
   private async initialize(): Promise<void> {
     try {
       this.db = await open({
-        filename: ':memory:',
+        filename: 'D:\database\mydb.db',
         driver: sqlite3.Database,
       });
       await this.seed();
