@@ -116,7 +116,7 @@ export function ReportForgeApp() {
 
       const datePart = reportDate || format(new Date(), 'yyyy-MM');
       const originalName = uploadedFile.name.replace(/\.docx$/, '');
-      setGeneratedFileName(`${originalName}-${datePart}.docx`);
+      setGeneratedFileName(`${originalName}-${datePart}.txt`);
       setGenerationStatus('success');
       toast({
         title: 'Report Generated Successfully',
@@ -153,7 +153,7 @@ Simulated Data:
 This functionality is simulated for demonstration purposes.
     `;
     const blob = new Blob([dummyContent], {
-      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      type: 'text/plain',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
