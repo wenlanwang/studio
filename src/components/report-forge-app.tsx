@@ -28,36 +28,49 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { SettingsDialog } from '@/components/settings-dialog';
 import { Progress } from '@/components/ui/progress';
+import { generateReport } from '@/ai/flows/generate-report';
 
 const initialParameters: Parameter[] = [
   {
     id: '1',
     name: 'total_sales',
     description: 'Calculates the total sales amount for the specified month.',
-    sql: "SELECT SUM(amount) FROM sales WHERE strftime('%Y-%m', sale_date) = '2025-09';",
+    sql: "SELECT SUM(amount) FROM sales WHERE strftime('%Y-%m', sale_date) = '[REPORT_DATE]';",
   },
   {
     id: '2',
     name: 'new_customers',
     description: 'Counts the number of new customers who signed up in the specified month.',
-    sql: "SELECT COUNT(id) FROM customers WHERE strftime('%Y-%m', signup_date) = '2025-09';",
+    sql: "SELECT COUNT(id) FROM customers WHERE strftime('%Y-%m', signup_date) = '[REPORT_DATE]';",
   },
   {
     id: '3',
     name: 'top_product',
     description: 'Finds the name of the product with the highest sales in the month.',
-    sql: "SELECT p.name FROM products p JOIN sales_items si ON p.id = si.product_id JOIN sales s ON si.sale_id = s.id WHERE strftime('%Y-%m', s.sale_date) = '2025-09' GROUP BY p.name ORDER BY SUM(si.quantity) DESC LIMIT 1;",
+    sql: "SELECT p.name FROM products p JOIN sales_items si ON p.id = si.product_id JOIN sales s ON si.sale_id = s.id WHERE strftime('%Y-%m', s.sale_date) = '[REPORT_DATE]' GROUP BY p.name ORDER BY SUM(si.quantity) DESC LIMIT 1;",
   },
 ];
 
 type GenerationStatus = 'idle' | 'loading' | 'success' | 'error';
+
+const fileToBase64 = (file: File): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = (reader.result as string).split(',')[1];
+      resolve(result);
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 export function ReportForgeApp() {
   const [reportDate, setReportDate] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [parameters, setParameters] = useState<Parameter[]>(initialParameters);
   const [generationStatus, setGenerationStatus] = useState<GenerationStatus>('idle');
-  const [generatedFileName, setGeneratedFileName] = useState<string | null>(null);
+  const [generatedFileContent, setGeneratedFileContent] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const { toast } = useToast();
 
@@ -71,7 +84,7 @@ export function ReportForgeApp() {
       if (file.name.endsWith('.docx')) {
         setUploadedFile(file);
         setGenerationStatus('idle');
-        setGeneratedFileName(null);
+        setGeneratedFileContent(null);
         toast({
           title: 'File uploaded',
           description: `${file.name} is ready.`,
@@ -96,27 +109,26 @@ export function ReportForgeApp() {
       return;
     }
     setGenerationStatus('loading');
-    setGeneratedFileName(null);
+    setGeneratedFileContent(null);
     setProgress(0);
 
     const interval = setInterval(() => {
       setProgress((prev) => (prev >= 95 ? 95 : prev + 5));
-    }, 200);
+    }, 500);
 
     try {
-      // Simulate backend processing
-      await new Promise((resolve) => setTimeout(resolve, 4000));
+      const fileContent = await fileToBase64(uploadedFile);
+
+      const result = await generateReport({
+        fileContent,
+        parameters,
+        reportDate,
+      });
 
       clearInterval(interval);
       setProgress(100);
 
-      if (Math.random() > 0.8) {
-        throw new Error('Failed to parse template placeholders. Check parameter syntax.');
-      }
-
-      const datePart = reportDate || format(new Date(), 'yyyy-MM');
-      const originalName = uploadedFile.name.replace(/\.docx$/, '');
-      setGeneratedFileName(`${originalName}-${datePart}.txt`);
+      setGeneratedFileContent(result.fileContent);
       setGenerationStatus('success');
       toast({
         title: 'Report Generated Successfully',
@@ -126,39 +138,35 @@ export function ReportForgeApp() {
       clearInterval(interval);
       setGenerationStatus('error');
       setProgress(0);
+      const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred during generation.';
       toast({
         variant: 'destructive',
         title: 'Generation Failed',
-        description: error instanceof Error ? error.message : 'An unknown error occurred.',
+        description: "The AI failed to generate the report. Please check your parameters and template.",
       });
+      console.error(error);
     }
   };
 
   const handleDownload = () => {
-    if (!generatedFileName) return;
+    if (!generatedFileContent || !uploadedFile) return;
 
-    const dummyContent = `This is a dummy report for ${generatedFileName}.
-    
-In a real application, this file would be the result of replacing placeholders like [$total_sales] in your Word template with data retrieved from the database.
-
-Report Date: ${reportDate}
-    
----
-Simulated Data:
-- total_sales: $54,321.00
-- new_customers: 123
-- top_product: 'Flux Capacitor'
----
-
-This functionality is simulated for demonstration purposes.
-    `;
-    const blob = new Blob([dummyContent], {
-      type: 'text/plain',
+    const byteCharacters = atob(generatedFileContent);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
+    
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = generatedFileName;
+    const datePart = reportDate || format(new Date(), 'yyyy-MM');
+    const originalName = uploadedFile.name.replace(/\.docx$/, '');
+    a.download = `${originalName}-generated-${datePart}.docx`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -191,7 +199,11 @@ This functionality is simulated for demonstration purposes.
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => setUploadedFile(null)}
+                onClick={() => {
+                  setUploadedFile(null);
+                  setGeneratedFileContent(null);
+                  setGenerationStatus('idle');
+                }}
               >
                 <X className="w-4 h-4" />
               </Button>
@@ -216,7 +228,7 @@ This functionality is simulated for demonstration purposes.
                 type="file"
                 className="hidden"
                 onChange={handleFileChange}
-                accept=".docx"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               />
             </label>
           )}
@@ -291,7 +303,7 @@ This functionality is simulated for demonstration purposes.
             ) : null}
             Generate Report
           </Button>
-          {generationStatus === 'success' && generatedFileName && (
+          {generationStatus === 'success' && generatedFileContent && (
             <Button
               onClick={handleDownload}
               variant="secondary"
