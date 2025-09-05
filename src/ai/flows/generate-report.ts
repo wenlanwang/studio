@@ -11,7 +11,7 @@
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import { Packer, Document, Paragraph, TextRun } from 'docx';
+import { Packer, patchDocument, TextRun, PatchType } from 'docx';
 import { dbService } from '@/services/database-service';
 import type { Parameter } from '@/lib/types';
 
@@ -46,45 +46,31 @@ const generateReportFlow = ai.defineFlow(
     const { fileContent, parameters, reportDate } = input;
     const docBuffer = Buffer.from(fileContent, 'base64');
     
-    // This is a simplified placeholder replacement logic.
-    // A full implementation would require parsing the docx XML structure.
-    // The `docx` library does not support direct search and replace in existing documents.
-    // As a workaround, we will simulate the replacement and generate a new document.
-    
-    const replacements: { [key: string]: string } = {};
+    const patches: { [key: string]: { type: PatchType.PARAGRAPH; children: TextRun[] } } = {};
 
     for (const param of parameters) {
+      const placeholder = `[$${param.name}]`;
       try {
-        const query = param.sql.replace(/\[REPORT_DATE\]/g, reportDate);
+        const query = param.sql.replace(/\[REPORT_DATE\]/g, `'${reportDate}'`);
         const result = await dbService.query(query);
         const value = result && result.length > 0 ? Object.values(result[0])[0] : 'N/A';
-        replacements[`[\\$${param.name}]`] = String(value);
+        
+        patches[placeholder] = {
+            type: PatchType.PARAGRAPH,
+            children: [new TextRun(String(value))],
+        };
       } catch (error) {
         console.error(`Error executing query for parameter ${param.name}:`, error);
-        replacements[`[\\$${param.name}]`] = 'Query Error';
+        patches[placeholder] = {
+            type: PatchType.PARAGRAPH,
+            children: [new TextRun({ text: 'Query Error', color: 'FF0000' })],
+        };
       }
     }
     
-    // Due to docx library limitations, we create a new document with simulated results.
-    // A real implementation would require a more powerful docx parser or a different approach.
-    const newDoc = new Document({
-        sections: [{
-            properties: {},
-            children: [
-                new Paragraph({ children: [new TextRun("Report Generation Simulation")] }),
-                new Paragraph({ children: [new TextRun(`This document demonstrates the data that would be inserted into your template for report date: ${reportDate}.`)] }),
-                new Paragraph({ text: "" }),
-                ...parameters.map(param => new Paragraph({
-                    children: [
-                        new TextRun({ text: `Placeholder: [$${param.name}]`, bold: true }),
-                        new TextRun({ text: ` -> Result: ${replacements[`[\\$${param.name}]`]}` }),
-                    ]
-                }))
-            ],
-        }],
+    const newDocBuffer = await patchDocument(docBuffer, {
+        patches: patches,
     });
-    
-    const newDocBuffer = await Packer.toBuffer(newDoc);
     
     return {
       fileContent: newDocBuffer.toString('base64'),
