@@ -68,10 +68,13 @@ const generateReportFlow = ai.defineFlow(
       }
     }
     
-    const newDocBuffer = await patchDocument(docBuffer, {
+    const newDocUint8Array = await patchDocument(docBuffer, {
         patches: patches,
     });
     
+    // Convert Uint8Array to Buffer before encoding to base64
+    const newDocBuffer = Buffer.from(newDocUint8Array);
+
     return {
       fileContent: newDocBuffer.toString('base64'),
     };
